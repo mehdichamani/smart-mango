@@ -1,4 +1,4 @@
-﻿const Version = '2026-10-08 22:23:27';
+const Version = '2026-10-08 22:23:27';
 let config_JSON, 缓存SOCKS5白名单 = null, 调试日志打印 = false;
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io', EDT_版本号 = Number(String(Version).replace(/\D+/g, ''));
@@ -286,6 +286,12 @@ export default {
 							}
 						} else return new Response(JSON.stringify({ error: '不支持的POST请求路径' }), { status: 404, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 					} else if (访问路径 === 'admin/config.json') {// 处理 admin/config.json 请求，返回JSON
+						const subBase = url.protocol + '//' + url.host + '/sub?token=' + config_JSON.优选订阅生成.TOKEN;
+						config_JSON.SUBSCRIPTIONS = {
+							DEFAULT: subBase,
+							MCI: subBase + '&isp=mci',
+							MTN: subBase + '&isp=mtn'
+						};
 						return new Response(JSON.stringify(config_JSON, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
 					} else if (区分大小写访问路径 === 'admin/ADD.txt') {// 处理 admin/ADD.txt 请求，返回本地优选IP
 						let 本地优选IP = await env.KV.get('ADD.txt') || 'null';
@@ -314,6 +320,22 @@ export default {
 					const 订阅转换后端请求订阅 = 请求TOKEN === 今日订阅转换后端专属TOKEN || 请求TOKEN === 昨日订阅转换后端专属TOKEN;
 					if (用户客户端请求订阅 || 订阅转换后端请求订阅 || 作为优选订阅生成器) {
 						config_JSON = await 读取config_JSON(env, host, userID, UA);
+						const ispParam = String(url.searchParams.get('isp') || '').toLowerCase();
+						if (ispParam === 'mci') {
+							config_JSON.Fingerprint = 'chrome';
+							config_JSON.ECH = true;
+							config_JSON.ECHConfig = {
+								DNS: 'udp://1.1.1.1',
+								SNI: 'cloudflare-ech.com'
+							};
+							config_JSON.TLS分片 = null;
+							config_JSON.优选订阅生成.SUBNAME = (config_JSON.优选订阅生成.SUBNAME || 'SmartMango') + '-MCI';
+						} else if (ispParam === 'mtn') {
+							config_JSON.Fingerprint = 'unsafe';
+							config_JSON.ECH = false;
+							config_JSON.ALPN = config_JSON.传输协议 === 'ws' ? 'http/1.1' : (config_JSON.ALPN || 'h2,http/1.1');
+							config_JSON.优选订阅生成.SUBNAME = (config_JSON.优选订阅生成.SUBNAME || 'SmartMango') + '-MTN';
+						}
 						if (作为优选订阅生成器) ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Get_Best_SUB', config_JSON, false));
 						else ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Get_SUB', config_JSON));
 						const ua = UA.toLowerCase();
@@ -451,7 +473,15 @@ export default {
 									return `${协议类型}://${btoa(config_JSON.SS.加密方式 + ':00000000-0000-4000-8000-000000000000')}@${节点地址}:${节点端口}?plugin=v2${encodeURIComponent('ray-plugin;mode=websocket;host=example.com;path=' + (config_JSON.随机路径 ? 随机路径(完整节点路径) : 完整节点路径) + (config_JSON.SS.TLS ? ';tls' : '')) + ECHLINK参数 + TLS分片参数}#${encodeURIComponent(节点备注)}`;
 								} else {
 									const 传输路径参数值 = 获取传输路径参数值(config_JSON, 完整节点路径, 作为优选订阅生成器);
-									return `${协议类型}://00000000-0000-4000-8000-000000000000@${节点地址}:${节点端口}?security=tls&type=${传输协议 + ECHLINK参数}&${域名字段名}=example.com&fp=${config_JSON.Fingerprint}&sni=example.com&${路径字段名}=${encodeURIComponent(传输路径参数值) + TLS分片参数}&encryption=none&alpn=${encodeURIComponent(config_JSON.ALPN)}#${encodeURIComponent(节点备注)}`;
+									let 最终备注 = 节点备注;
+									let extraParams = '';
+									if (ispParam === 'mci') {
+										最终备注 = `[MCI] ${节点备注}`;
+									} else if (ispParam === 'mtn') {
+										最终备注 = `[MTN] ${节点备注}`;
+										extraParams = '&finalMask=tlshello-0-len&ciphers=semi-python';
+									}
+									return `${协议类型}://00000000-0000-4000-8000-000000000000@${节点地址}:${节点端口}?security=tls&type=${传输协议 + ECHLINK参数}&${域名字段名}=example.com&fp=${config_JSON.Fingerprint}&sni=example.com&${路径字段名}=${encodeURIComponent(传输路径参数值) + TLS分片参数}&encryption=none&alpn=${encodeURIComponent(config_JSON.ALPN)}${extraParams}#${encodeURIComponent(最终备注)}`;
 								}
 							}).filter(item => item !== null).join('\n');
 						} else { // 订阅转换
