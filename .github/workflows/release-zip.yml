@@ -28,6 +28,27 @@ jobs:
             zip -r deploy.zip public/
           fi
 
+      - name: Generate Version Tag
+        id: version
+        run: |
+          VERSION="v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated version: ${VERSION}"
+
+      - name: Create Versioned Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Release ${{ steps.version.outputs.tag }}"
+          body: |
+            ### 📦 بسته آماده دیپلوی در کلادفلر پیجز (Pages Deploy Package)
+
+            - نسخه: `${{ steps.version.outputs.tag }}`
+            - هش کامیت: `${{ github.sha }}`
+            - بدون نیاز به کامپیوتر یا سیستم، می‌توانید این فایل را با موبایل دانلود کرده و در پنل کلادفلر مستقیماً آپلود کنید.
+            - برای راهنمای گام‌به‌گام استقرار، به [README.md](README.md) مراجعه کنید.
+          files: deploy.zip
+
       - name: Update Latest Release
         uses: softprops/action-gh-release@v2
         with:
@@ -36,8 +57,9 @@ jobs:
           body: |
             ### 📦 بسته آماده دیپلوی در کلادفلر پیجز (Pages Deploy Package)
 
-            - این فایل حاوی آخرین نسخه سورس پروژه آماده آپلود در **Cloudflare Pages** است.
+            - آخرین نسخه ساخته شده: `${{ steps.version.outputs.tag }}`
             - بدون نیاز به کامپیوتر یا سیستم، می‌توانید این فایل را با موبایل دانلود کرده و در پنل کلادفلر مستقیماً آپلود کنید.
-            - برای راهنمای گام‌به‌گام استقرار، به [CLOUDFLARE_PAGES_MANUAL_DEPLOY.fa.md](CLOUDFLARE_PAGES_MANUAL_DEPLOY.fa.md) مراجعه کنید.
+            - برای راهنمای گام‌به‌گام استقرار، به [README.md](README.md) مراجعه کنید.
           files: deploy.zip
           make_latest: true
+
