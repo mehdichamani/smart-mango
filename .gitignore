@@ -14,6 +14,7 @@ dist/
 build/
 *.wasm
 GRAINTCP_*
+deploy.zip
 
 # Cloudflare Workers
 .wrangler/

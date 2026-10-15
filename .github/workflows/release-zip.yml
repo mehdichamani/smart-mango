@@ -1,0 +1,43 @@
+name: Build and Release deploy.zip
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '_worker.js'
+      - 'public/**'
+      - 'wrangler.toml'
+      - '.github/workflows/release-zip.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create deploy.zip
+        run: |
+          zip -r deploy.zip _worker.js wrangler.toml
+          if [ -d "public" ]; then
+            zip -r deploy.zip public/
+          fi
+
+      - name: Update Latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest Ready-to-Deploy Assets"
+          body: |
+            ### 📦 بسته آماده دیپلوی در کلادفلر پیجز (Pages Deploy Package)
+
+            - این فایل حاوی آخرین نسخه سورس پروژه آماده آپلود در **Cloudflare Pages** است.
+            - بدون نیاز به کامپیوتر یا سیستم، می‌توانید این فایل را با موبایل دانلود کرده و در پنل کلادفلر مستقیماً آپلود کنید.
+            - برای راهنمای گام‌به‌گام استقرار، به [CLOUDFLARE_PAGES_MANUAL_DEPLOY.fa.md](CLOUDFLARE_PAGES_MANUAL_DEPLOY.fa.md) مراجعه کنید.
+          files: deploy.zip
+          make_latest: true
