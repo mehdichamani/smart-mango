@@ -1,7 +1,7 @@
 const Version = '2026-10-08 22:23:27';
 let config_JSON, 缓存SOCKS5白名单 = null, 调试日志打印 = false;
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
-const Pages静态页面 = 'https://edt-pages.github.io', EDT_版本号 = Number(String(Version).replace(/\D+/g, ''));
+const EDT_版本号 = Number(String(Version).replace(/\D+/g, ''));
 ///////////////////////////////////////////////////////全局常量和工具函数///////////////////////////////////////////////
 const WS早期数据最大字节 = 8 * 1024, WS早期数据最大头长度 = Math.ceil(WS早期数据最大字节 * 4 / 3) + 4;
 const 上行合包目标字节 = 20 * 1024, 上行队列最大字节 = 16 * 1024 * 1024, 上行队列最大条目 = 4096;
@@ -81,7 +81,7 @@ export default {
 			return await 处理叉HTTP请求(request, userID, 反代上下文);
 		} else {
 			if (url.protocol === 'http:') return Response.redirect(url.href.replace(`http://${url.hostname}`, `https://${url.hostname}`), 301);
-			if (!管理员密码) return fetch(Pages静态页面 + '/noADMIN').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }) });
+			if (!管理员密码) return new Response(renderNoAdminHTML(), { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 			if (env.KV && typeof env.KV.get === 'function') {
 				const 区分大小写访问路径 = url.pathname.slice(1);
 				if (区分大小写访问路径 === 加密秘钥 && 加密秘钥 !== '勿动此默认密钥，有需求请自行通过添加变量KEY进行修改') {//快速订阅
@@ -91,19 +91,30 @@ export default {
 				} else if (访问路径 === 'login') {//处理登录页面和登录请求
 					const cookies = request.headers.get('Cookie') || '';
 					const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
-					if (authCookie == await MD5MD5(UA + 加密秘钥 + 管理员密码)) return new Response('重定向中...', { status: 302, headers: { 'Location': '/admin' } });
+					if (authCookie == await MD5MD5(UA + 加密秘钥 + 管理员密码)) return new Response('در حال انتقال...', { status: 302, headers: { 'Location': '/admin' } });
 					if (request.method === 'POST') {
-						const formData = await request.text();
-						const params = new URLSearchParams(formData);
-						const 输入密码 = params.get('password');
-						if (输入密码 === (typeof 管理员密码 === 'string' ? 管理员密码.replace(/[\r\n]/g, '') : 管理员密码)) {
+						let 输入密码 = '';
+						const contentType = (request.headers.get('content-type') || '').toLowerCase();
+						if (contentType.includes('application/json')) {
+							try {
+								const b = await request.json();
+								输入密码 = b.password || '';
+							} catch (e) { }
+						} else {
+							const formData = await request.text();
+							const params = new URLSearchParams(formData);
+							输入密码 = params.get('password') || '';
+						}
+						const cleanAdminPass = typeof 管理员密码 === 'string' ? 管理员密码.replace(/[\r\n]/g, '') : String(管理员密码);
+						if (输入密码 === cleanAdminPass) {
 							// 密码正确，设置cookie并返回成功标记
-							const 响应 = new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
+							const 响应 = new Response(JSON.stringify({ success: true, message: 'ورود موفقیت‌آمیز بود' }), { status: 200, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 							响应.headers.set('Set-Cookie', `auth=${await MD5MD5(UA + 加密秘钥 + 管理员密码)}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax`);
 							return 响应;
 						}
+						return new Response(JSON.stringify({ success: false, message: 'رمز عبور وارد شده اشتباه است' }), { status: 401, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 					}
-					return fetch(Pages静态页面 + '/login');
+					return new Response(renderLoginHTML(), { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 				} else if (访问路径 === 'admin' || 访问路径.startsWith('admin/')) {//验证cookie后响应管理页面
 					const cookies = request.headers.get('Cookie') || '';
 					const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
@@ -302,7 +313,10 @@ export default {
 					}
 
 					ctx.waitUntil(请求日志记录(env, request, 访问IP, 'Admin_Login', config_JSON));
-					return fetch(Pages静态页面 + '/admin' + url.search);
+					return new Response(renderAdminHTML(config_JSON, 访问IP, request.cf?.colo || 'CF'), {
+						status: 200,
+						headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+					});
 				} else if (访问路径 === 'logout' || uuidRegex.test(访问路径)) {//清除cookie并跳转到登录页面
 					const 响应 = new Response('重定向中...', { status: 302, headers: { 'Location': '/login' } });
 					响应.headers.set('Set-Cookie', 'auth=; Path=/; Max-Age=0; HttpOnly');
@@ -529,7 +543,7 @@ export default {
 					const authCookie = cookies.split(';').find(c => c.trim().startsWith('auth='))?.split('=')[1];
 					if (authCookie && authCookie == await MD5MD5(UA + 加密秘钥 + 管理员密码)) return fetch(new Request('https://speed.cloudflare.com/locations', { headers: { 'Referer': 'https://speed.cloudflare.com/' } }));
 				} else if (访问路径 === 'robots.txt') return new Response('User-agent: *\nDisallow: /', { status: 200, headers: { 'Content-Type': 'text/plain; charset=UTF-8' } });
-			} else if (!envUUID) return fetch(Pages静态页面 + '/noKV').then(r => { const headers = new Headers(r.headers); headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate'); headers.set('Pragma', 'no-cache'); headers.set('Expires', '0'); return new Response(r.body, { status: 404, statusText: r.statusText, headers }) });
+			} else if (!envUUID) return new Response(renderNoKVHTML(), { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 		}
 
 		let 伪装页URL = env.URL || 'nginx';
@@ -6679,6 +6693,1197 @@ async function html1101(host, 访问IP) {
 
 
   </script>
+</body>
+</html>`;
+}
+
+
+// =====================================================================
+// 🥭 Smart Mango - رابط کاربری اختصاصی، سبک و مدرن فارسی
+// =====================================================================
+
+const QR_MIN_SCRIPT = "var qrcode=(function(){var P=function(x,w){var g=236,l=17,n=x,s=O[w],t=null,r=0,h=null,i=[],v={},_=function(a,f){r=n*4+17,t=(function(e){for(var u=new Array(e),o=0;o<e;o+=1){u[o]=new Array(e);for(var d=0;d<e;d+=1)u[o][d]=null}return u})(r),B(0,0),B(r-7,0),B(0,r-7),E(),T(),m(a,f),n>=7&&N(a),h==null&&(h=nr(n,s,i)),U(h,f)},B=function(a,f){for(var e=-1;e<=7;e+=1)if(!(a+e<=-1||r<=a+e))for(var u=-1;u<=7;u+=1)f+u<=-1||r<=f+u||(0<=e&&e<=6&&(u==0||u==6)||0<=u&&u<=6&&(e==0||e==6)||2<=e&&e<=4&&2<=u&&u<=4?t[a+e][f+u]=!0:t[a+e][f+u]=!1)},y=function(){for(var a=0,f=0,e=0;e<8;e+=1){_(!0,e);var u=k.getLostPoint(v);(e==0||a>u)&&(a=u,f=e)}return f},T=function(){for(var a=8;a<r-8;a+=1)t[a][6]==null&&(t[a][6]=a%2==0);for(var f=8;f<r-8;f+=1)t[6][f]==null&&(t[6][f]=f%2==0)},E=function(){for(var a=k.getPatternPosition(n),f=0;f<a.length;f+=1)for(var e=0;e<a.length;e+=1){var u=a[f],o=a[e];if(t[u][o]==null)for(var d=-2;d<=2;d+=1)for(var c=-2;c<=2;c+=1)d==-2||d==2||c==-2||c==2||d==0&&c==0?t[u+d][o+c]=!0:t[u+d][o+c]=!1}},N=function(a){for(var f=k.getBCHTypeNumber(n),e=0;e<18;e+=1){var u=!a&&(f>>e&1)==1;t[Math.floor(e/3)][e%3+r-8-3]=u}for(var e=0;e<18;e+=1){var u=!a&&(f>>e&1)==1;t[e%3+r-8-3][Math.floor(e/3)]=u}},m=function(a,f){for(var e=s<<3|f,u=k.getBCHTypeInfo(e),o=0;o<15;o+=1){var d=!a&&(u>>o&1)==1;o<6?t[o][8]=d:o<8?t[o+1][8]=d:t[r-15+o][8]=d}for(var o=0;o<15;o+=1){var d=!a&&(u>>o&1)==1;o<8?t[8][r-o-1]=d:o<9?t[8][15-o-1+1]=d:t[8][15-o-1]=d}t[r-8][8]=!a},U=function(a,f){for(var e=-1,u=r-1,o=7,d=0,c=k.getMaskFunction(f),p=r-1;p>0;p-=2)for(p==6&&(p-=1);;){for(var b=0;b<2;b+=1)if(t[u][p-b]==null){var C=!1;d<a.length&&(C=(a[d]>>>o&1)==1);var A=c(u,p-b);A&&(C=!C),t[u][p-b]=C,o-=1,o==-1&&(d+=1,o=7)}if(u+=e,u<0||r<=u){u-=e,e=-e;break}}},H=function(a,f){for(var e=0,u=0,o=0,d=new Array(f.length),c=new Array(f.length),p=0;p<f.length;p+=1){var b=f[p].dataCount,C=f[p].totalCount-b;u=Math.max(u,b),o=Math.max(o,C),d[p]=new Array(b);for(var A=0;A<d[p].length;A+=1)d[p][A]=255&a.getBuffer()[A+e];e+=b;var R=k.getErrorCorrectPolynomial(C),I=K(d[p],R.getLength()-1),S=I.mod(R);c[p]=new Array(R.getLength()-1);for(var A=0;A<c[p].length;A+=1){var X=A+S.getLength()-c[p].length;c[p][A]=X>=0?S.getAt(X):0}}for(var Z=0,A=0;A<f.length;A+=1)Z+=f[A].totalCount;for(var J=new Array(Z),Q=0,A=0;A<u;A+=1)for(var p=0;p<f.length;p+=1)A<d[p].length&&(J[Q]=d[p][A],Q+=1);for(var A=0;A<o;A+=1)for(var p=0;p<f.length;p+=1)A<c[p].length&&(J[Q]=c[p][A],Q+=1);return J},nr=function(a,f,e){for(var u=Y.getRSBlocks(a,f),o=G(),d=0;d<e.length;d+=1){var c=e[d];o.put(c.getMode(),4),o.put(c.getLength(),k.getLengthInBits(c.getMode(),a)),c.write(o)}for(var p=0,d=0;d<u.length;d+=1)p+=u[d].dataCount;if(o.getLengthInBits()>p*8)throw\"code length overflow. (\"+o.getLengthInBits()+\">\"+p*8+\")\";for(o.getLengthInBits()+4<=p*8&&o.put(0,4);o.getLengthInBits()%8!=0;)o.putBit(!1);for(;!(o.getLengthInBits()>=p*8||(o.put(g,8),o.getLengthInBits()>=p*8));)o.put(l,8);return H(o,u)};v.addData=function(a,f){f=f||\"Byte\";var e=null;switch(f){case\"Numeric\":e=$(a);break;case\"Alphanumeric\":e=W(a);break;case\"Byte\":e=V(a);break;case\"Kanji\":e=q(a);break;default:throw\"mode:\"+f}i.push(e),h=null},v.isDark=function(a,f){if(a<0||r<=a||f<0||r<=f)throw a+\",\"+f;return t[a][f]},v.getModuleCount=function(){return r},v.make=function(){if(n<1){for(var a=1;a<40;a++){for(var f=Y.getRSBlocks(a,s),e=G(),u=0;u<i.length;u++){var o=i[u];e.put(o.getMode(),4),e.put(o.getLength(),k.getLengthInBits(o.getMode(),a)),o.write(e)}for(var d=0,u=0;u<f.length;u++)d+=f[u].dataCount;if(e.getLengthInBits()<=d*8)break}n=a}_(!1,y())},v.createTableTag=function(a,f){a=a||2,f=typeof f>\"u\"?a*4:f;var e=\"\";e+='<table style=\"',e+=\" border-width: 0px; border-style: none;\",e+=\" border-collapse: collapse;\",e+=\" padding: 0px; margin: \"+f+\"px;\",e+='\">',e+=\"<tbody>\";for(var u=0;u<v.getModuleCount();u+=1){e+=\"<tr>\";for(var o=0;o<v.getModuleCount();o+=1)e+='<td style=\"',e+=\" border-width: 0px; border-style: none;\",e+=\" border-collapse: collapse;\",e+=\" padding: 0px; margin: 0px;\",e+=\" width: \"+a+\"px;\",e+=\" height: \"+a+\"px;\",e+=\" background-color: \",e+=v.isDark(u,o)?\"#000000\":\"#ffffff\",e+=\";\",e+='\"/>';e+=\"</tr>\"}return e+=\"</tbody>\",e+=\"</table>\",e},v.createSvgTag=function(a,f,e,u){var o={};typeof arguments[0]==\"object\"&&(o=arguments[0],a=o.cellSize,f=o.margin,e=o.alt,u=o.title),a=a||2,f=typeof f>\"u\"?a*4:f,e=typeof e==\"string\"?{text:e}:e||{},e.text=e.text||null,e.id=e.text?e.id||\"qrcode-description\":null,u=typeof u==\"string\"?{text:u}:u||{},u.text=u.text||null,u.id=u.text?u.id||\"qrcode-title\":null;var d=v.getModuleCount()*a+f*2,c,p,b,C,A=\"\",R;for(R=\"l\"+a+\",0 0,\"+a+\" -\"+a+\",0 0,-\"+a+\"z \",A+='<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\"',A+=o.scalable?\"\":' width=\"'+d+'px\" height=\"'+d+'px\"',A+=' viewBox=\"0 0 '+d+\" \"+d+'\" ',A+=' preserveAspectRatio=\"xMinYMin meet\"',A+=u.text||e.text?' role=\"img\" aria-labelledby=\"'+F([u.id,e.id].join(\" \").trim())+'\"':\"\",A+=\">\",A+=u.text?'<title id=\"'+F(u.id)+'\">'+F(u.text)+\"</title>\":\"\",A+=e.text?'<description id=\"'+F(e.id)+'\">'+F(e.text)+\"</description>\":\"\",A+='<rect width=\"100%\" height=\"100%\" fill=\"white\" cx=\"0\" cy=\"0\"/>',A+='<path d=\"',b=0;b<v.getModuleCount();b+=1)for(C=b*a+f,c=0;c<v.getModuleCount();c+=1)v.isDark(b,c)&&(p=c*a+f,A+=\"M\"+p+\",\"+C+R);return A+='\" stroke=\"transparent\" fill=\"black\"/>',A+=\"</svg>\",A},v.createDataURL=function(a,f){a=a||2,f=typeof f>\"u\"?a*4:f;var e=v.getModuleCount()*a+f*2,u=f,o=e-f;return er(e,e,function(d,c){if(u<=d&&d<o&&u<=c&&c<o){var p=Math.floor((d-u)/a),b=Math.floor((c-u)/a);return v.isDark(b,p)?0:1}else return 1})},v.createImgTag=function(a,f,e){a=a||2,f=typeof f>\"u\"?a*4:f;var u=v.getModuleCount()*a+f*2,o=\"\";return o+=\"<img\",o+=' src=\"',o+=v.createDataURL(a,f),o+='\"',o+=' width=\"',o+=u,o+='\"',o+=' height=\"',o+=u,o+='\"',e&&(o+=' alt=\"',o+=F(e),o+='\"'),o+=\"/>\",o};var F=function(a){for(var f=\"\",e=0;e<a.length;e+=1){var u=a.charAt(e);switch(u){case\"<\":f+=\"&lt;\";break;case\">\":f+=\"&gt;\";break;case\"&\":f+=\"&amp;\";break;case'\"':f+=\"&quot;\";break;default:f+=u;break}}return f},ar=function(a){var f=1;a=typeof a>\"u\"?f*2:a;var e=v.getModuleCount()*f+a*2,u=a,o=e-a,d,c,p,b,C,A={\"\\u2588\\u2588\":\"\\u2588\",\"\\u2588 \":\"\\u2580\",\" \\u2588\":\"\\u2584\",\"  \":\" \"},R={\"\\u2588\\u2588\":\"\\u2580\",\"\\u2588 \":\"\\u2580\",\" \\u2588\":\" \",\"  \":\" \"},I=\"\";for(d=0;d<e;d+=2){for(p=Math.floor((d-u)/f),b=Math.floor((d+1-u)/f),c=0;c<e;c+=1)C=\"\\u2588\",u<=c&&c<o&&u<=d&&d<o&&v.isDark(p,Math.floor((c-u)/f))&&(C=\" \"),u<=c&&c<o&&u<=d+1&&d+1<o&&v.isDark(b,Math.floor((c-u)/f))?C+=\" \":C+=\"\\u2588\",I+=a<1&&d+1>=o?R[C]:A[C];I+=`\n`}return e%2&&a>0?I.substring(0,I.length-e-1)+Array(e+1).join(\"\\u2580\"):I.substring(0,I.length-1)};return v.createASCII=function(a,f){if(a=a||1,a<2)return ar(f);a-=1,f=typeof f>\"u\"?a*2:f;var e=v.getModuleCount()*a+f*2,u=f,o=e-f,d,c,p,b,C=Array(a+1).join(\"\\u2588\\u2588\"),A=Array(a+1).join(\"  \"),R=\"\",I=\"\";for(d=0;d<e;d+=1){for(p=Math.floor((d-u)/a),I=\"\",c=0;c<e;c+=1)b=1,u<=c&&c<o&&u<=d&&d<o&&v.isDark(p,Math.floor((c-u)/a))&&(b=0),I+=b?C:A;for(p=0;p<a;p+=1)R+=I+`\n`}return R.substring(0,R.length-1)},v.renderTo2dContext=function(a,f){f=f||2;for(var e=v.getModuleCount(),u=0;u<e;u++)for(var o=0;o<e;o++)a.fillStyle=v.isDark(u,o)?\"black\":\"white\",a.fillRect(o*f,u*f,f,f)},v};P.stringToBytesFuncs={default:function(x){for(var w=[],g=0;g<x.length;g+=1){var l=x.charCodeAt(g);w.push(l&255)}return w}},P.stringToBytes=P.stringToBytesFuncs.default,P.createStringToBytes=function(x,w){var g=(function(){for(var n=rr(x),s=function(){var T=n.read();if(T==-1)throw\"eof\";return T},t=0,r={};;){var h=n.read();if(h==-1)break;var i=s(),v=s(),_=s(),B=String.fromCharCode(h<<8|i),y=v<<8|_;r[B]=y,t+=1}if(t!=w)throw t+\" != \"+w;return r})(),l=63;return function(n){for(var s=[],t=0;t<n.length;t+=1){var r=n.charCodeAt(t);if(r<128)s.push(r);else{var h=g[n.charAt(t)];typeof h==\"number\"?(h&255)==h?s.push(h):(s.push(h>>>8),s.push(h&255)):s.push(l)}}return s}};var D={MODE_NUMBER:1,MODE_ALPHA_NUM:2,MODE_8BIT_BYTE:4,MODE_KANJI:8},O={L:1,M:0,Q:3,H:2},L={PATTERN000:0,PATTERN001:1,PATTERN010:2,PATTERN011:3,PATTERN100:4,PATTERN101:5,PATTERN110:6,PATTERN111:7},k=(function(){var x=[[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]],w=1335,g=7973,l=21522,n={},s=function(t){for(var r=0;t!=0;)r+=1,t>>>=1;return r};return n.getBCHTypeInfo=function(t){for(var r=t<<10;s(r)-s(w)>=0;)r^=w<<s(r)-s(w);return(t<<10|r)^l},n.getBCHTypeNumber=function(t){for(var r=t<<12;s(r)-s(g)>=0;)r^=g<<s(r)-s(g);return t<<12|r},n.getPatternPosition=function(t){return x[t-1]},n.getMaskFunction=function(t){switch(t){case L.PATTERN000:return function(r,h){return(r+h)%2==0};case L.PATTERN001:return function(r,h){return r%2==0};case L.PATTERN010:return function(r,h){return h%3==0};case L.PATTERN011:return function(r,h){return(r+h)%3==0};case L.PATTERN100:return function(r,h){return(Math.floor(r/2)+Math.floor(h/3))%2==0};case L.PATTERN101:return function(r,h){return r*h%2+r*h%3==0};case L.PATTERN110:return function(r,h){return(r*h%2+r*h%3)%2==0};case L.PATTERN111:return function(r,h){return(r*h%3+(r+h)%2)%2==0};default:throw\"bad maskPattern:\"+t}},n.getErrorCorrectPolynomial=function(t){for(var r=K([1],0),h=0;h<t;h+=1)r=r.multiply(K([1,M.gexp(h)],0));return r},n.getLengthInBits=function(t,r){if(1<=r&&r<10)switch(t){case D.MODE_NUMBER:return 10;case D.MODE_ALPHA_NUM:return 9;case D.MODE_8BIT_BYTE:return 8;case D.MODE_KANJI:return 8;default:throw\"mode:\"+t}else if(r<27)switch(t){case D.MODE_NUMBER:return 12;case D.MODE_ALPHA_NUM:return 11;case D.MODE_8BIT_BYTE:return 16;case D.MODE_KANJI:return 10;default:throw\"mode:\"+t}else if(r<41)switch(t){case D.MODE_NUMBER:return 14;case D.MODE_ALPHA_NUM:return 13;case D.MODE_8BIT_BYTE:return 16;case D.MODE_KANJI:return 12;default:throw\"mode:\"+t}else throw\"type:\"+r},n.getLostPoint=function(t){for(var r=t.getModuleCount(),h=0,i=0;i<r;i+=1)for(var v=0;v<r;v+=1){for(var _=0,B=t.isDark(i,v),y=-1;y<=1;y+=1)if(!(i+y<0||r<=i+y))for(var T=-1;T<=1;T+=1)v+T<0||r<=v+T||y==0&&T==0||B==t.isDark(i+y,v+T)&&(_+=1);_>5&&(h+=3+_-5)}for(var i=0;i<r-1;i+=1)for(var v=0;v<r-1;v+=1){var E=0;t.isDark(i,v)&&(E+=1),t.isDark(i+1,v)&&(E+=1),t.isDark(i,v+1)&&(E+=1),t.isDark(i+1,v+1)&&(E+=1),(E==0||E==4)&&(h+=3)}for(var i=0;i<r;i+=1)for(var v=0;v<r-6;v+=1)t.isDark(i,v)&&!t.isDark(i,v+1)&&t.isDark(i,v+2)&&t.isDark(i,v+3)&&t.isDark(i,v+4)&&!t.isDark(i,v+5)&&t.isDark(i,v+6)&&(h+=40);for(var v=0;v<r;v+=1)for(var i=0;i<r-6;i+=1)t.isDark(i,v)&&!t.isDark(i+1,v)&&t.isDark(i+2,v)&&t.isDark(i+3,v)&&t.isDark(i+4,v)&&!t.isDark(i+5,v)&&t.isDark(i+6,v)&&(h+=40);for(var N=0,v=0;v<r;v+=1)for(var i=0;i<r;i+=1)t.isDark(i,v)&&(N+=1);var m=Math.abs(100*N/r/r-50)/5;return h+=m*10,h},n})(),M=(function(){for(var x=new Array(256),w=new Array(256),g=0;g<8;g+=1)x[g]=1<<g;for(var g=8;g<256;g+=1)x[g]=x[g-4]^x[g-5]^x[g-6]^x[g-8];for(var g=0;g<255;g+=1)w[x[g]]=g;var l={};return l.glog=function(n){if(n<1)throw\"glog(\"+n+\")\";return w[n]},l.gexp=function(n){for(;n<0;)n+=255;for(;n>=256;)n-=255;return x[n]},l})();function K(x,w){if(typeof x.length>\"u\")throw x.length+\"/\"+w;var g=(function(){for(var n=0;n<x.length&&x[n]==0;)n+=1;for(var s=new Array(x.length-n+w),t=0;t<x.length-n;t+=1)s[t]=x[t+n];return s})(),l={};return l.getAt=function(n){return g[n]},l.getLength=function(){return g.length},l.multiply=function(n){for(var s=new Array(l.getLength()+n.getLength()-1),t=0;t<l.getLength();t+=1)for(var r=0;r<n.getLength();r+=1)s[t+r]^=M.gexp(M.glog(l.getAt(t))+M.glog(n.getAt(r)));return K(s,0)},l.mod=function(n){if(l.getLength()-n.getLength()<0)return l;for(var s=M.glog(l.getAt(0))-M.glog(n.getAt(0)),t=new Array(l.getLength()),r=0;r<l.getLength();r+=1)t[r]=l.getAt(r);for(var r=0;r<n.getLength();r+=1)t[r]^=M.gexp(M.glog(n.getAt(r))+s);return K(t,0).mod(n)},l}var Y=(function(){var x=[[1,26,19],[1,26,16],[1,26,13],[1,26,9],[1,44,34],[1,44,28],[1,44,22],[1,44,16],[1,70,55],[1,70,44],[2,35,17],[2,35,13],[1,100,80],[2,50,32],[2,50,24],[4,25,9],[1,134,108],[2,67,43],[2,33,15,2,34,16],[2,33,11,2,34,12],[2,86,68],[4,43,27],[4,43,19],[4,43,15],[2,98,78],[4,49,31],[2,32,14,4,33,15],[4,39,13,1,40,14],[2,121,97],[2,60,38,2,61,39],[4,40,18,2,41,19],[4,40,14,2,41,15],[2,146,116],[3,58,36,2,59,37],[4,36,16,4,37,17],[4,36,12,4,37,13],[2,86,68,2,87,69],[4,69,43,1,70,44],[6,43,19,2,44,20],[6,43,15,2,44,16],[4,101,81],[1,80,50,4,81,51],[4,50,22,4,51,23],[3,36,12,8,37,13],[2,116,92,2,117,93],[6,58,36,2,59,37],[4,46,20,6,47,21],[7,42,14,4,43,15],[4,133,107],[8,59,37,1,60,38],[8,44,20,4,45,21],[12,33,11,4,34,12],[3,145,115,1,146,116],[4,64,40,5,65,41],[11,36,16,5,37,17],[11,36,12,5,37,13],[5,109,87,1,110,88],[5,65,41,5,66,42],[5,54,24,7,55,25],[11,36,12,7,37,13],[5,122,98,1,123,99],[7,73,45,3,74,46],[15,43,19,2,44,20],[3,45,15,13,46,16],[1,135,107,5,136,108],[10,74,46,1,75,47],[1,50,22,15,51,23],[2,42,14,17,43,15],[5,150,120,1,151,121],[9,69,43,4,70,44],[17,50,22,1,51,23],[2,42,14,19,43,15],[3,141,113,4,142,114],[3,70,44,11,71,45],[17,47,21,4,48,22],[9,39,13,16,40,14],[3,135,107,5,136,108],[3,67,41,13,68,42],[15,54,24,5,55,25],[15,43,15,10,44,16],[4,144,116,4,145,117],[17,68,42],[17,50,22,6,51,23],[19,46,16,6,47,17],[2,139,111,7,140,112],[17,74,46],[7,54,24,16,55,25],[34,37,13],[4,151,121,5,152,122],[4,75,47,14,76,48],[11,54,24,14,55,25],[16,45,15,14,46,16],[6,147,117,4,148,118],[6,73,45,14,74,46],[11,54,24,16,55,25],[30,46,16,2,47,17],[8,132,106,4,133,107],[8,75,47,13,76,48],[7,54,24,22,55,25],[22,45,15,13,46,16],[10,142,114,2,143,115],[19,74,46,4,75,47],[28,50,22,6,51,23],[33,46,16,4,47,17],[8,152,122,4,153,123],[22,73,45,3,74,46],[8,53,23,26,54,24],[12,45,15,28,46,16],[3,147,117,10,148,118],[3,73,45,23,74,46],[4,54,24,31,55,25],[11,45,15,31,46,16],[7,146,116,7,147,117],[21,73,45,7,74,46],[1,53,23,37,54,24],[19,45,15,26,46,16],[5,145,115,10,146,116],[19,75,47,10,76,48],[15,54,24,25,55,25],[23,45,15,25,46,16],[13,145,115,3,146,116],[2,74,46,29,75,47],[42,54,24,1,55,25],[23,45,15,28,46,16],[17,145,115],[10,74,46,23,75,47],[10,54,24,35,55,25],[19,45,15,35,46,16],[17,145,115,1,146,116],[14,74,46,21,75,47],[29,54,24,19,55,25],[11,45,15,46,46,16],[13,145,115,6,146,116],[14,74,46,23,75,47],[44,54,24,7,55,25],[59,46,16,1,47,17],[12,151,121,7,152,122],[12,75,47,26,76,48],[39,54,24,14,55,25],[22,45,15,41,46,16],[6,151,121,14,152,122],[6,75,47,34,76,48],[46,54,24,10,55,25],[2,45,15,64,46,16],[17,152,122,4,153,123],[29,74,46,14,75,47],[49,54,24,10,55,25],[24,45,15,46,46,16],[4,152,122,18,153,123],[13,74,46,32,75,47],[48,54,24,14,55,25],[42,45,15,32,46,16],[20,147,117,4,148,118],[40,75,47,7,76,48],[43,54,24,22,55,25],[10,45,15,67,46,16],[19,148,118,6,149,119],[18,75,47,31,76,48],[34,54,24,34,55,25],[20,45,15,61,46,16]],w=function(n,s){var t={};return t.totalCount=n,t.dataCount=s,t},g={},l=function(n,s){switch(s){case O.L:return x[(n-1)*4+0];case O.M:return x[(n-1)*4+1];case O.Q:return x[(n-1)*4+2];case O.H:return x[(n-1)*4+3];default:return}};return g.getRSBlocks=function(n,s){var t=l(n,s);if(typeof t>\"u\")throw\"bad rs block @ typeNumber:\"+n+\"/errorCorrectionLevel:\"+s;for(var r=t.length/3,h=[],i=0;i<r;i+=1)for(var v=t[i*3+0],_=t[i*3+1],B=t[i*3+2],y=0;y<v;y+=1)h.push(w(_,B));return h},g})(),G=function(){var x=[],w=0,g={};return g.getBuffer=function(){return x},g.getAt=function(l){var n=Math.floor(l/8);return(x[n]>>>7-l%8&1)==1},g.put=function(l,n){for(var s=0;s<n;s+=1)g.putBit((l>>>n-s-1&1)==1)},g.getLengthInBits=function(){return w},g.putBit=function(l){var n=Math.floor(w/8);x.length<=n&&x.push(0),l&&(x[n]|=128>>>w%8),w+=1},g},$=function(x){var w=D.MODE_NUMBER,g=x,l={};l.getMode=function(){return w},l.getLength=function(t){return g.length},l.write=function(t){for(var r=g,h=0;h+2<r.length;)t.put(n(r.substring(h,h+3)),10),h+=3;h<r.length&&(r.length-h==1?t.put(n(r.substring(h,h+1)),4):r.length-h==2&&t.put(n(r.substring(h,h+2)),7))};var n=function(t){for(var r=0,h=0;h<t.length;h+=1)r=r*10+s(t.charAt(h));return r},s=function(t){if(\"0\"<=t&&t<=\"9\")return t.charCodeAt(0)-48;throw\"illegal char :\"+t};return l},W=function(x){var w=D.MODE_ALPHA_NUM,g=x,l={};l.getMode=function(){return w},l.getLength=function(s){return g.length},l.write=function(s){for(var t=g,r=0;r+1<t.length;)s.put(n(t.charAt(r))*45+n(t.charAt(r+1)),11),r+=2;r<t.length&&s.put(n(t.charAt(r)),6)};var n=function(s){if(\"0\"<=s&&s<=\"9\")return s.charCodeAt(0)-48;if(\"A\"<=s&&s<=\"Z\")return s.charCodeAt(0)-65+10;switch(s){case\" \":return 36;case\"$\":return 37;case\"%\":return 38;case\"*\":return 39;case\"+\":return 40;case\"-\":return 41;case\".\":return 42;case\"/\":return 43;case\":\":return 44;default:throw\"illegal char :\"+s}};return l},V=function(x){var w=D.MODE_8BIT_BYTE,g=x,l=P.stringToBytes(x),n={};return n.getMode=function(){return w},n.getLength=function(s){return l.length},n.write=function(s){for(var t=0;t<l.length;t+=1)s.put(l[t],8)},n},q=function(x){var w=D.MODE_KANJI,g=x,l=P.stringToBytesFuncs.SJIS;if(!l)throw\"sjis not supported.\";(function(t,r){var h=l(t);if(h.length!=2||(h[0]<<8|h[1])!=r)throw\"sjis not supported.\"})(\"\\u53CB\",38726);var n=l(x),s={};return s.getMode=function(){return w},s.getLength=function(t){return~~(n.length/2)},s.write=function(t){for(var r=n,h=0;h+1<r.length;){var i=(255&r[h])<<8|255&r[h+1];if(33088<=i&&i<=40956)i-=33088;else if(57408<=i&&i<=60351)i-=49472;else throw\"illegal char at \"+(h+1)+\"/\"+i;i=(i>>>8&255)*192+(i&255),t.put(i,13),h+=2}if(h<r.length)throw\"illegal char at \"+(h+1)},s},j=function(){var x=[],w={};return w.writeByte=function(g){x.push(g&255)},w.writeShort=function(g){w.writeByte(g),w.writeByte(g>>>8)},w.writeBytes=function(g,l,n){l=l||0,n=n||g.length;for(var s=0;s<n;s+=1)w.writeByte(g[s+l])},w.writeString=function(g){for(var l=0;l<g.length;l+=1)w.writeByte(g.charCodeAt(l))},w.toByteArray=function(){return x},w.toString=function(){var g=\"\";g+=\"[\";for(var l=0;l<x.length;l+=1)l>0&&(g+=\",\"),g+=x[l];return g+=\"]\",g},w},z=function(){var x=0,w=0,g=0,l=\"\",n={},s=function(r){l+=String.fromCharCode(t(r&63))},t=function(r){if(!(r<0)){if(r<26)return 65+r;if(r<52)return 97+(r-26);if(r<62)return 48+(r-52);if(r==62)return 43;if(r==63)return 47}throw\"n:\"+r};return n.writeByte=function(r){for(x=x<<8|r&255,w+=8,g+=1;w>=6;)s(x>>>w-6),w-=6},n.flush=function(){if(w>0&&(s(x<<6-w),x=0,w=0),g%3!=0)for(var r=3-g%3,h=0;h<r;h+=1)l+=\"=\"},n.toString=function(){return l},n},rr=function(x){var w=x,g=0,l=0,n=0,s={};s.read=function(){for(;n<8;){if(g>=w.length){if(n==0)return-1;throw\"unexpected end of file./\"+n}var r=w.charAt(g);if(g+=1,r==\"=\")return n=0,-1;if(r.match(/^\\s$/))continue;l=l<<6|t(r.charCodeAt(0)),n+=6}var h=l>>>n-8&255;return n-=8,h};var t=function(r){if(65<=r&&r<=90)return r-65;if(97<=r&&r<=122)return r-97+26;if(48<=r&&r<=57)return r-48+52;if(r==43)return 62;if(r==47)return 63;throw\"c:\"+r};return s},tr=function(x,w){var g=x,l=w,n=new Array(x*w),s={};s.setPixel=function(i,v,_){n[v*g+i]=_},s.write=function(i){i.writeString(\"GIF87a\"),i.writeShort(g),i.writeShort(l),i.writeByte(128),i.writeByte(0),i.writeByte(0),i.writeByte(0),i.writeByte(0),i.writeByte(0),i.writeByte(255),i.writeByte(255),i.writeByte(255),i.writeString(\",\"),i.writeShort(0),i.writeShort(0),i.writeShort(g),i.writeShort(l),i.writeByte(0);var v=2,_=r(v);i.writeByte(v);for(var B=0;_.length-B>255;)i.writeByte(255),i.writeBytes(_,B,255),B+=255;i.writeByte(_.length-B),i.writeBytes(_,B,_.length-B),i.writeByte(0),i.writeString(\";\")};var t=function(i){var v=i,_=0,B=0,y={};return y.write=function(T,E){if(T>>>E)throw\"length over\";for(;_+E>=8;)v.writeByte(255&(T<<_|B)),E-=8-_,T>>>=8-_,B=0,_=0;B=T<<_|B,_=_+E},y.flush=function(){_>0&&v.writeByte(B)},y},r=function(i){for(var v=1<<i,_=(1<<i)+1,B=i+1,y=h(),T=0;T<v;T+=1)y.add(String.fromCharCode(T));y.add(String.fromCharCode(v)),y.add(String.fromCharCode(_));var E=j(),N=t(E);N.write(v,B);var m=0,U=String.fromCharCode(n[m]);for(m+=1;m<n.length;){var H=String.fromCharCode(n[m]);m+=1,y.contains(U+H)?U=U+H:(N.write(y.indexOf(U),B),y.size()<4095&&(y.size()==1<<B&&(B+=1),y.add(U+H)),U=H)}return N.write(y.indexOf(U),B),N.write(_,B),N.flush(),E.toByteArray()},h=function(){var i={},v=0,_={};return _.add=function(B){if(_.contains(B))throw\"dup key:\"+B;i[B]=v,v+=1},_.size=function(){return v},_.indexOf=function(B){return i[B]},_.contains=function(B){return typeof i[B]<\"u\"},_};return s},er=function(x,w,g){for(var l=tr(x,w),n=0;n<w;n+=1)for(var s=0;s<x;s+=1)l.setPixel(s,n,g(s,n));var t=j();l.write(t);for(var r=z(),h=t.toByteArray(),i=0;i<h.length;i+=1)r.writeByte(h[i]);return r.flush(),\"data:image/gif;base64,\"+r};return P})();(function(){qrcode.stringToBytesFuncs[\"UTF-8\"]=function(P){function D(O){for(var L=[],k=0;k<O.length;k++){var M=O.charCodeAt(k);M<128?L.push(M):M<2048?L.push(192|M>>6,128|M&63):M<55296||M>=57344?L.push(224|M>>12,128|M>>6&63,128|M&63):(k++,M=65536+((M&1023)<<10|O.charCodeAt(k)&1023),L.push(240|M>>18,128|M>>12&63,128|M>>6&63,128|M&63))}return L}return D(P)}})(),(function(P){typeof define==\"function\"&&define.amd?define([],P):typeof exports==\"object\"&&(module.exports=P())})(function(){return qrcode});\n";
+
+function getSharedStyles() {
+	return `
+		:root {
+			--bg-main: #0a0d14;
+			--bg-card: rgba(18, 24, 38, 0.75);
+			--bg-card-hover: rgba(26, 34, 52, 0.85);
+			--border-glass: rgba(255, 255, 255, 0.08);
+			--border-accent: rgba(245, 158, 11, 0.4);
+			--primary: #f59e0b;
+			--primary-hover: #d97706;
+			--primary-glow: rgba(245, 158, 11, 0.25);
+			--accent-emerald: #10b981;
+			--accent-indigo: #6366f1;
+			--accent-rose: #f43f5e;
+			--text-main: #f8fafc;
+			--text-muted: #94a3b8;
+			--text-sub: #64748b;
+			--radius-lg: 18px;
+			--radius-md: 12px;
+			--radius-sm: 8px;
+			--shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border-glass);
+		}
+
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+			font-family: 'Vazirmatn', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+		}
+
+		body {
+			background-color: var(--bg-main);
+			background-image: 
+				radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.12), transparent 70%),
+				radial-gradient(ellipse 60% 40% at 90% 70%, rgba(99, 102, 241, 0.08), transparent 60%);
+			background-attachment: fixed;
+			color: var(--text-main);
+			min-height: 100vh;
+			display: flex;
+			flex-direction: column;
+			direction: rtl;
+			line-height: 1.6;
+			-webkit-font-smoothing: antialiased;
+		}
+
+		a {
+			color: var(--primary);
+			text-decoration: none;
+			transition: color 0.2s;
+		}
+		a:hover {
+			color: var(--primary-hover);
+		}
+
+		.glass-panel {
+			background: var(--bg-card);
+			backdrop-filter: blur(16px);
+			-webkit-backdrop-filter: blur(16px);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-lg);
+			box-shadow: var(--shadow-card);
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		.glass-panel:hover {
+			border-color: rgba(255, 255, 255, 0.14);
+		}
+
+		.btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 8px;
+			padding: 10px 18px;
+			font-size: 0.95rem;
+			font-weight: 600;
+			border-radius: var(--radius-md);
+			border: none;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			text-decoration: none;
+		}
+		.btn:active {
+			transform: scale(0.97);
+		}
+
+		.btn-primary {
+			background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+			color: #fff;
+			box-shadow: 0 4px 14px var(--primary-glow);
+		}
+		.btn-primary:hover {
+			box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+			filter: brightness(1.08);
+		}
+
+		.btn-secondary {
+			background: rgba(255, 255, 255, 0.06);
+			color: var(--text-main);
+			border: 1px solid var(--border-glass);
+		}
+		.btn-secondary:hover {
+			background: rgba(255, 255, 255, 0.12);
+			border-color: rgba(255, 255, 255, 0.2);
+		}
+
+		.btn-sm {
+			padding: 6px 12px;
+			font-size: 0.85rem;
+			border-radius: var(--radius-sm);
+		}
+
+		.badge {
+			display: inline-flex;
+			align-items: center;
+			gap: 5px;
+			padding: 4px 10px;
+			font-size: 0.8rem;
+			font-weight: 600;
+			border-radius: 9999px;
+		}
+		.badge-amber {
+			background: rgba(245, 158, 11, 0.15);
+			color: #fbbf24;
+			border: 1px solid rgba(245, 158, 11, 0.3);
+		}
+		.badge-emerald {
+			background: rgba(16, 185, 129, 0.15);
+			color: #34d399;
+			border: 1px solid rgba(16, 185, 129, 0.3);
+		}
+		.badge-indigo {
+			background: rgba(99, 102, 241, 0.15);
+			color: #a5b4fc;
+			border: 1px solid rgba(99, 102, 241, 0.3);
+		}
+
+		/* Toast message */
+		#toast {
+			position: fixed;
+			top: 24px;
+			left: 50%;
+			transform: translateX(-50%) translateY(-100px);
+			background: rgba(15, 23, 42, 0.95);
+			backdrop-filter: blur(12px);
+			border: 1px solid var(--primary);
+			color: #fff;
+			padding: 12px 24px;
+			border-radius: 9999px;
+			font-weight: 600;
+			font-size: 0.92rem;
+			box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px var(--primary-glow);
+			z-index: 9999;
+			opacity: 0;
+			pointer-events: none;
+			transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+		}
+		#toast.show {
+			transform: translateX(-50%) translateY(0);
+			opacity: 1;
+		}
+
+		/* QR Modal */
+		.modal-overlay {
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.75);
+			backdrop-filter: blur(8px);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 1000;
+			opacity: 0;
+			visibility: hidden;
+			transition: all 0.25s ease;
+			padding: 20px;
+		}
+		.modal-overlay.active {
+			opacity: 1;
+			visibility: visible;
+		}
+		.modal-card {
+			background: #111827;
+			border: 1px solid rgba(255, 255, 255, 0.12);
+			border-radius: var(--radius-lg);
+			padding: 28px;
+			max-width: 380px;
+			width: 100%;
+			text-align: center;
+			transform: scale(0.9);
+			transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+			box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+		}
+		.modal-overlay.active .modal-card {
+			transform: scale(1);
+		}
+		.qr-wrapper {
+			background: #ffffff;
+			padding: 16px;
+			border-radius: var(--radius-md);
+			display: inline-flex;
+			margin: 20px auto;
+			box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+		}
+		.qr-wrapper svg {
+			display: block;
+			max-width: 100%;
+			height: auto;
+		}
+	`;
+}
+
+function renderLoginHTML() {
+	return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>ورود به پنل مدیریت | Smart Mango</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		${getSharedStyles()}
+		.login-wrapper {
+			flex: 1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 20px;
+		}
+		.login-card {
+			max-width: 420px;
+			width: 100%;
+			padding: 36px 30px;
+			text-align: center;
+		}
+		.brand-logo {
+			font-size: 3.5rem;
+			margin-bottom: 12px;
+			display: inline-block;
+			filter: drop-shadow(0 4px 12px rgba(245, 158, 11, 0.3));
+			animation: float 3s ease-in-out infinite;
+		}
+		@keyframes float {
+			0%, 100% { transform: translateY(0); }
+			50% { transform: translateY(-6px); }
+		}
+		.login-title {
+			font-size: 1.6rem;
+			font-weight: 700;
+			margin-bottom: 8px;
+			background: linear-gradient(135deg, #fff 40%, var(--primary) 100%);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		.login-desc {
+			color: var(--text-muted);
+			font-size: 0.9rem;
+			margin-bottom: 28px;
+		}
+		.form-group {
+			margin-bottom: 20px;
+			text-align: right;
+		}
+		.input-box {
+			position: relative;
+			display: flex;
+			align-items: center;
+		}
+		.input-control {
+			width: 100%;
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-md);
+			padding: 12px 16px;
+			font-size: 1rem;
+			color: #fff;
+			transition: all 0.2s;
+			outline: none;
+		}
+		.input-control:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 3px var(--primary-glow);
+		}
+		.toggle-pass {
+			position: absolute;
+			left: 12px;
+			background: none;
+			border: none;
+			color: var(--text-muted);
+			cursor: pointer;
+			font-size: 1.1rem;
+			padding: 4px;
+		}
+		.error-box {
+			background: rgba(244, 63, 94, 0.15);
+			border: 1px solid rgba(244, 63, 94, 0.35);
+			color: #fda4af;
+			padding: 10px 14px;
+			border-radius: var(--radius-md);
+			font-size: 0.88rem;
+			margin-bottom: 20px;
+			display: none;
+			animation: shake 0.4s ease;
+		}
+		@keyframes shake {
+			0%, 100% { transform: translateX(0); }
+			25% { transform: translateX(-6px); }
+			75% { transform: translateX(6px); }
+		}
+	</style>
+</head>
+<body>
+	<div id="toast"></div>
+
+	<div class="login-wrapper">
+		<div class="glass-panel login-card">
+			<div class="brand-logo">🥭</div>
+			<h1 class="login-title">مدیریت Smart Mango</h1>
+			<p class="login-desc">برای دسترسی به پنل مدیریت، رمز عبور خود را وارد کنید.</p>
+
+			<div id="errorBox" class="error-box"></div>
+
+			<form id="loginForm" onsubmit="handleLogin(event)">
+				<div class="form-group">
+					<div class="input-box">
+						<input type="password" id="password" class="input-control" placeholder="رمز عبور مدیریت (ADMIN)" required autofocus>
+						<button type="button" class="toggle-pass" onclick="togglePasswordVisibility()" title="نمایش/عدم نمایش">👁️</button>
+					</div>
+				</div>
+				<button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%; padding: 12px;">
+					<span>ورود به پنل</span>
+				</button>
+			</form>
+			<div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-glass); text-align: center; font-size: 0.82rem; color: var(--text-sub);">
+				<div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+					<a href="https://github.com/mehdichamani/smart-mango" target="_blank" rel="noopener noreferrer" style="color: var(--primary); font-weight: 500;">smart-mango</a>
+					<span>•</span>
+					<span>بر پایه <a href="https://github.com/cmliu/edgetunnel" target="_blank" rel="noopener noreferrer" style="color: var(--text-sub);">edgetunnel</a></span>
+					<span>•</span>
+					<span>بهبود با <a href="https://github.com/patterniha" target="_blank" rel="noopener noreferrer" style="color: var(--text-sub);">patterniha</a></span>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		function showToast(text) {
+			const t = document.getElementById('toast');
+			t.textContent = text;
+			t.classList.add('show');
+			setTimeout(() => t.classList.remove('show'), 3000);
+		}
+
+		function togglePasswordVisibility() {
+			const inp = document.getElementById('password');
+			inp.type = inp.type === 'password' ? 'text' : 'password';
+		}
+
+		async function handleLogin(e) {
+			e.preventDefault();
+			const pass = document.getElementById('password').value;
+			const btn = document.getElementById('submitBtn');
+			const err = document.getElementById('errorBox');
+			err.style.display = 'none';
+
+			btn.disabled = true;
+			btn.innerHTML = '<span>در حال بررسی...</span>';
+
+			try {
+				const res = await fetch('/login', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ password: pass })
+				});
+
+				const data = await res.json().catch(() => null);
+
+				if (res.ok && data && data.success) {
+					showToast('ورود موفقیت‌آمیز بود! در حال انتقال...');
+					setTimeout(() => {
+						window.location.href = '/admin';
+					}, 500);
+				} else {
+					err.textContent = (data && data.message) ? data.message : 'رمز عبور وارد شده نادرست است.';
+					err.style.display = 'block';
+					btn.disabled = false;
+					btn.innerHTML = '<span>ورود به پنل</span>';
+				}
+			} catch (ex) {
+				err.textContent = 'خطا در برقراری ارتباط با سرور. لطفاً مجدداً تلاش کنید.';
+				err.style.display = 'block';
+				btn.disabled = false;
+				btn.innerHTML = '<span>ورود به پنل</span>';
+			}
+		}
+	</script>
+</body>
+</html>`;
+}
+
+function renderAdminHTML(config, clientIP, colo) {
+	const proto = (config.协议类型 || 'vless').toLowerCase();
+	const uuid = config.UUID || '';
+	const host = config.HOST || '';
+	const subToken = config.优选订阅生成?.TOKEN || '';
+	const cleanConfigJSON = JSON.stringify(config);
+
+	return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>داشبورد مدیریت | Smart Mango</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		${getSharedStyles()}
+		header {
+			padding: 16px 28px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			border-bottom: 1px solid var(--border-glass);
+			background: rgba(10, 13, 20, 0.7);
+			backdrop-filter: blur(16px);
+			position: sticky;
+			top: 0;
+			z-index: 100;
+		}
+		.brand-area {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+		}
+		.brand-icon {
+			font-size: 1.8rem;
+		}
+		.brand-title {
+			font-size: 1.25rem;
+			font-weight: 700;
+			background: linear-gradient(135deg, #fff 40%, var(--primary) 100%);
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+		}
+		.container {
+			max-width: 1100px;
+			margin: 0 auto;
+			padding: 24px 20px 60px;
+			flex: 1;
+		}
+		.status-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 16px;
+			margin-bottom: 28px;
+		}
+		.status-card {
+			padding: 16px 20px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+		}
+		.status-info .label {
+			font-size: 0.8rem;
+			color: var(--text-sub);
+			margin-bottom: 4px;
+		}
+		.status-info .val {
+			font-size: 1.05rem;
+			font-weight: 700;
+			color: var(--text-main);
+			font-family: monospace, sans-serif;
+		}
+
+		.section-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin: 28px 0 16px;
+		}
+		.section-title {
+			font-size: 1.15rem;
+			font-weight: 700;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			color: var(--text-main);
+		}
+
+		.cards-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+			gap: 20px;
+		}
+		.item-card {
+			padding: 22px;
+			display: flex;
+			flex-direction: column;
+			justify-content: space-between;
+		}
+		.card-top {
+			margin-bottom: 16px;
+		}
+		.card-title-row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			margin-bottom: 8px;
+		}
+		.card-title {
+			font-size: 1rem;
+			font-weight: 700;
+			color: #fff;
+		}
+		.card-desc {
+			font-size: 0.85rem;
+			color: var(--text-muted);
+			line-height: 1.5;
+		}
+		.code-preview {
+			direction: ltr;
+			text-align: left;
+			background: rgba(10, 13, 20, 0.8);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-sm);
+			padding: 10px 12px;
+			font-size: 0.8rem;
+			font-family: 'Courier New', Courier, monospace;
+			color: #e2e8f0;
+			word-break: break-all;
+			margin-bottom: 16px;
+			max-height: 70px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			display: -webkit-box;
+			-webkit-line-clamp: 2;
+			-webkit-box-orient: vertical;
+		}
+		.btn-group {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+		.btn-group .btn {
+			flex: 1;
+		}
+
+		/* Form settings */
+		.settings-panel {
+			padding: 24px;
+		}
+		.form-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+			gap: 20px;
+			margin-bottom: 24px;
+		}
+		.form-field {
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+		}
+		.form-field label {
+			font-size: 0.9rem;
+			font-weight: 600;
+			color: var(--text-main);
+		}
+		.form-field .helper {
+			font-size: 0.78rem;
+			color: var(--text-sub);
+		}
+		.form-field input, .form-field select {
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-sm);
+			padding: 10px 14px;
+			color: #fff;
+			font-size: 0.9rem;
+			outline: none;
+			transition: border-color 0.2s;
+			direction: ltr;
+		}
+		.form-field input:focus, .form-field select:focus {
+			border-color: var(--primary);
+			box-shadow: 0 0 0 2px var(--primary-glow);
+		}
+	</style>
+</head>
+<body>
+	<div id="toast"></div>
+
+	<!-- QR Modal -->
+	<div id="qrModal" class="modal-overlay" onclick="closeQRModal(event)">
+		<div class="modal-card" onclick="event.stopPropagation()">
+			<h3 id="qrModalTitle" style="margin-bottom: 6px; font-size: 1.15rem; color: #fff;">بارکد کانفیگ</h3>
+			<p style="color: var(--text-muted); font-size: 0.82rem;">این بارکد را با دوربین نرم‌افزار متصل‌کننده اسکن کنید</p>
+			<div class="qr-wrapper" id="qrContainer"></div>
+			<div class="btn-group">
+				<button class="btn btn-primary btn-sm" onclick="copyCurrentQR()">کپی مجدد متن</button>
+				<button class="btn btn-secondary btn-sm" onclick="document.getElementById('qrModal').classList.remove('active')">بستن</button>
+			</div>
+		</div>
+	</div>
+
+	<header>
+		<div class="brand-area">
+			<span class="brand-icon">🥭</span>
+			<span class="brand-title">Smart Mango</span>
+			<span class="badge badge-amber">نسخه ۲.۱</span>
+			<span class="badge badge-emerald">● آنلاین</span>
+		</div>
+		<div style="display: flex; align-items: center; gap: 8px;">
+			<a href="https://github.com/mehdichamani/smart-mango" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="مخزن گیت‌هاب Smart Mango">⭐ گیت‌هاب</a>
+			<a href="/logout" class="btn btn-secondary btn-sm" title="خروج از پنل">🚪 خروج</a>
+		</div>
+	</header>
+
+	<main class="container">
+		<!-- Connection Status Bar -->
+		<div class="status-grid">
+			<div class="glass-panel status-card">
+				<div class="status-info">
+					<div class="label">آی‌پی اتصال شما</div>
+					<div class="val">${clientIP}</div>
+				</div>
+				<span style="font-size: 1.5rem;">🌐</span>
+			</div>
+			<div class="glass-panel status-card">
+				<div class="status-info">
+					<div class="label">دیتاسنتر کلادفلر</div>
+					<div class="val">${colo}</div>
+				</div>
+				<span style="font-size: 1.5rem;">⚡</span>
+			</div>
+			<div class="glass-panel status-card">
+				<div class="status-info">
+					<div class="label">پروتکل فعال هسته</div>
+					<div class="val" style="color: var(--primary);">${proto.toUpperCase()} + WS + TLS</div>
+				</div>
+				<span style="font-size: 1.5rem;">🔒</span>
+			</div>
+			<div class="glass-panel status-card">
+				<div class="status-info">
+					<div class="label">دامنه / آدرس سرور</div>
+					<div class="val">${host}</div>
+				</div>
+				<span style="font-size: 1.5rem;">📡</span>
+			</div>
+		</div>
+
+		<!-- Direct Connection Config -->
+		<div class="section-header">
+			<h2 class="section-title"><span>🔑</span> کانفیگ اتصال مستقیم (Single Node)</h2>
+		</div>
+		<div class="glass-panel item-card" style="margin-bottom: 30px;">
+			<div class="card-top">
+				<div class="card-title-row">
+					<div class="card-title">لینک اتصال مستقیم ${proto.toUpperCase()} (پورت ۴۴۳)</div>
+					<span class="badge badge-indigo">TLS 443</span>
+				</div>
+				<p class="card-desc">این کانفیگ اختصاصی را می‌توانید به صورت مستقیم در نرم‌افزارهای v2rayNG، Hiddify، Sing-box، Shadowrocket و NekoBox ایمپورت یا اسکن کنید.</p>
+			</div>
+			<div class="code-preview" id="directNodePreview">در حال تولید لینک...</div>
+			<div class="btn-group" style="max-width: 320px;">
+				<button class="btn btn-primary" onclick="copyDirectNode()">📋 کپی کانفیگ</button>
+				<button class="btn btn-secondary" onclick="showDirectNodeQR()">📱 بارکد QR</button>
+			</div>
+		</div>
+
+		<!-- Smart Subscriptions -->
+		<div class="section-header">
+			<h2 class="section-title"><span>🚀</span> لینک‌های اشتراک هوشمند (Smart Subscriptions)</h2>
+			<span class="badge badge-emerald">آپدیت خودکار</span>
+		</div>
+		<div class="cards-grid">
+			<!-- Auto Sub -->
+			<div class="glass-panel item-card">
+				<div class="card-top">
+					<div class="card-title-row">
+						<div class="card-title">🌐 ساب‌اسکریپشن هوشمند (Auto)</div>
+						<span class="badge badge-amber">پیشنهادی</span>
+					</div>
+					<p class="card-desc">شناسایی خودکار کلاینت و ارائه بهترین فرمت کانفیگ متناسب با اپلیکیشن مورد استفاده شما.</p>
+				</div>
+				<div class="code-preview" id="subAutoPreview">...</div>
+				<div class="btn-group">
+					<button class="btn btn-primary btn-sm" onclick="copySub('auto')">📋 کپی لینک</button>
+					<button class="btn btn-secondary btn-sm" onclick="showSubQR('auto', 'ساب‌اسکریپشن خودکار')">📱 کد QR</button>
+				</div>
+			</div>
+
+			<!-- MCI Sub -->
+			<div class="glass-panel item-card">
+				<div class="card-top">
+					<div class="card-title-row">
+						<div class="card-title">📶 بهینه‌شده همراه اول (MCI)</div>
+						<span class="badge badge-indigo">مخصوص همراه اول</span>
+					</div>
+					<p class="card-desc">تنظیم شده با ECH و اثرانگشت Chrome برای پایداری و عبور از محدودیت‌های شدید همراه اول.</p>
+				</div>
+				<div class="code-preview" id="subMCIPreview">...</div>
+				<div class="btn-group">
+					<button class="btn btn-primary btn-sm" onclick="copySub('mci')">📋 کپی لینک</button>
+					<button class="btn btn-secondary btn-sm" onclick="showSubQR('mci', 'ساب همراه اول')">📱 کد QR</button>
+				</div>
+			</div>
+
+			<!-- MTN Sub -->
+			<div class="glass-panel item-card">
+				<div class="card-top">
+					<div class="card-title-row">
+						<div class="card-title">📶 بهینه‌شده ایرانسل (MTN)</div>
+						<span class="badge badge-amber">مخصوص ایرانسل</span>
+					</div>
+					<p class="card-desc">تنظیم شده با ALPN سازگار (http/1.1) برای گریز از اختلالات و پکت‌دراپ‌های شبکه ایرانسل.</p>
+				</div>
+				<div class="code-preview" id="subMTNPreview">...</div>
+				<div class="btn-group">
+					<button class="btn btn-primary btn-sm" onclick="copySub('mtn')">📋 کپی لینک</button>
+					<button class="btn btn-secondary btn-sm" onclick="showSubQR('mtn', 'ساب ایرانسل')">📱 کد QR</button>
+				</div>
+			</div>
+
+			<!-- Base64 Sub -->
+			<div class="glass-panel item-card">
+				<div class="card-top">
+					<div class="card-title-row">
+						<div class="card-title">📦 ساب‌اسکریپشن Base64</div>
+						<span class="badge badge-emerald">استاندارد V2Ray</span>
+					</div>
+					<p class="card-desc">خروجی کدگذاری شده استاندارد Base64 برای نرم‌افزارهای v2rayN، Streisand، FoXray و کلاینت‌های کلاسیک.</p>
+				</div>
+				<div class="code-preview" id="subB64Preview">...</div>
+				<div class="btn-group">
+					<button class="btn btn-primary btn-sm" onclick="copySub('b64')">📋 کپی لینک</button>
+					<button class="btn btn-secondary btn-sm" onclick="showSubQR('b64', 'ساب Base64')">📱 کد QR</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Client Formats Quick Bar -->
+		<div class="glass-panel" style="padding: 16px 22px; margin-top: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+			<div style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">خروجی‌های اختصاصی نرم‌افزارها:</div>
+			<div style="display: flex; gap: 8px; flex-wrap: wrap;">
+				<button class="btn btn-secondary btn-sm" onclick="copySub('clash')">⚡ لینک Clash / Mihomo</button>
+				<button class="btn btn-secondary btn-sm" onclick="copySub('singbox')">📦 لینک Sing-box</button>
+			</div>
+		</div>
+
+		<!-- Fast KV Settings Form -->
+		<div class="section-header">
+			<h2 class="section-title"><span>⚙️</span> تنظیمات سریع ورکر (KV Database)</h2>
+		</div>
+		<div class="glass-panel settings-panel">
+			<form id="settingsForm" onsubmit="saveSettings(event)">
+				<div class="form-grid">
+					<div class="form-field">
+						<label for="proxyIPInput">آی‌پی تمیز کلادفلر (PROXYIP)</label>
+						<input type="text" id="proxyIPInput" placeholder="auto یا آی‌پی تمیز">
+						<span class="helper">آی‌پی یا دامنه تمیز CDN برای رفع کندی (مثال: proxyip.example.com یا auto).</span>
+					</div>
+
+					<div class="form-field">
+						<label for="socks5Input">پروکسی کمکی (SOCKS5)</label>
+						<input type="text" id="socks5Input" placeholder="user:pass@ip:port یا خالی">
+						<span class="helper">آدرس پروکسی خارجی کمکی برای تونل کردن ترافیک سایت‌های فیلترشده توسط CF.</span>
+					</div>
+
+					<div class="form-field">
+						<label for="hostInput">دامنه اتصال سرور (HOST)</label>
+						<input type="text" id="hostInput" readonly style="opacity: 0.7; cursor: not-allowed;">
+						<span class="helper">دامنه فعال فعلی این ورکر / پیجز.</span>
+					</div>
+
+					<div class="form-field">
+						<label for="uuidInput">شناسه امنیتی (UUID)</label>
+						<input type="text" id="uuidInput" readonly style="opacity: 0.7; cursor: not-allowed;">
+						<span class="helper">کلید کاربری و شناسه امنیتی یکتا.</span>
+					</div>
+				</div>
+
+				<div style="display: flex; align-items: center; justify-content: flex-end; gap: 12px;">
+					<button type="submit" id="saveBtn" class="btn btn-primary" style="padding: 10px 24px;">
+						<span>💾 ذخیره تنظیمات</span>
+					</button>
+				</div>
+			</form>
+		</div>
+
+		<footer style="margin-top: 40px; padding: 24px 0 10px; border-top: 1px solid var(--border-glass); text-align: center; font-size: 0.85rem; color: var(--text-sub);">
+			<div style="display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
+				<a href="https://github.com/mehdichamani/smart-mango" target="_blank" rel="noopener noreferrer" style="color: var(--primary); font-weight: 600;">⭐ smart-mango</a>
+				<span>•</span>
+				<span>بر پایه <a href="https://github.com/cmliu/edgetunnel" target="_blank" rel="noopener noreferrer" style="color: var(--text-muted);">edgetunnel</a></span>
+				<span>•</span>
+				<span>بهبود یافته با روش‌های <a href="https://github.com/patterniha" target="_blank" rel="noopener noreferrer" style="color: var(--text-muted);">patterniha</a></span>
+			</div>
+			<div style="font-size: 0.78rem; color: var(--text-sub);">توسعه‌یافته برای دور زدن محدودیت‌های شبکه با بالاترین سرعت و پایداری</div>
+		</footer>
+	</main>
+
+	<!-- Inlined Lightweight QR Code Generator -->
+	<script>
+		${QR_MIN_SCRIPT}
+		window.qrcode = qrcode;
+	</script>
+
+	<!-- Dashboard Interaction Script -->
+	<script>
+		const CURRENT_CONFIG = ${cleanConfigJSON};
+		let currentQRText = '';
+
+		function showToast(text) {
+			const t = document.getElementById('toast');
+			t.textContent = text;
+			t.classList.add('show');
+			setTimeout(() => t.classList.remove('show'), 3000);
+		}
+
+		async function copyToClipboard(text, successMsg = 'کپی شد!') {
+			try {
+				if (navigator.clipboard && navigator.clipboard.writeText) {
+					await navigator.clipboard.writeText(text);
+				} else {
+					const ta = document.createElement('textarea');
+					ta.value = text;
+					document.body.appendChild(ta);
+					ta.select();
+					document.execCommand('copy');
+					document.body.removeChild(ta);
+				}
+				showToast(successMsg);
+			} catch (e) {
+				showToast('خطا در کپی متن!');
+			}
+		}
+
+		function getSubUrl(type) {
+			const base = CURRENT_CONFIG.SUBSCRIPTIONS?.DEFAULT || (window.location.origin + '/sub?token=' + (CURRENT_CONFIG.优选订阅生成?.TOKEN || ''));
+			switch (type) {
+				case 'mci': return base + '&isp=mci';
+				case 'mtn': return base + '&isp=mtn';
+				case 'b64': return base + '&b64=1';
+				case 'clash': return base + '&clash=1';
+				case 'singbox': return base + '&singbox=1';
+				default: return base;
+			}
+		}
+
+		function getDirectNodeLink() {
+			const proto = (CURRENT_CONFIG.协议类型 || 'vless').toLowerCase();
+			const uuid = CURRENT_CONFIG.UUID || '';
+			const host = CURRENT_CONFIG.HOST || window.location.hostname;
+			const name = 'SmartMango-' + proto.toUpperCase();
+
+			if (proto === 'trojan') {
+				return 'trojan://' + uuid + '@' + host + ':443?security=tls&sni=' + host + '&type=ws&host=' + host + '&path=%2F#' + encodeURIComponent(name);
+			} else if (proto === 'ss') {
+				return 'ss://' + btoa('aes-128-gcm:' + uuid) + '@' + host + ':443#' + encodeURIComponent(name);
+			} else {
+				return 'vless://' + uuid + '@' + host + ':443?encryption=none&security=tls&sni=' + host + '&type=ws&host=' + host + '&path=%2F#' + encodeURIComponent(name);
+			}
+		}
+
+		function copyDirectNode() {
+			copyToClipboard(getDirectNodeLink(), 'کانفیگ مستقیم کپی شد!');
+		}
+
+		function copySub(type) {
+			copyToClipboard(getSubUrl(type), 'لینک اشتراک کپی شد!');
+		}
+
+		function showQR(title, text) {
+			try {
+				const qr = window.qrcode(0, 'M');
+				qr.addData(text);
+				qr.make();
+				document.getElementById('qrModalTitle').textContent = title;
+				document.getElementById('qrContainer').innerHTML = qr.createSvgTag(5, 4);
+				currentQRText = text;
+				document.getElementById('qrModal').classList.add('active');
+			} catch (e) {
+				console.error('QR generation error:', e);
+				showToast('خطا در ساخت بارکد!');
+			}
+		}
+
+		function showDirectNodeQR() {
+			showQR('بارکد کانفیگ مستقیم', getDirectNodeLink());
+		}
+
+		function showSubQR(type, title) {
+			showQR(title, getSubUrl(type));
+		}
+
+		function closeQRModal(e) {
+			if (e.target.id === 'qrModal') {
+				document.getElementById('qrModal').classList.remove('active');
+			}
+		}
+
+		function copyCurrentQR() {
+			if (currentQRText) copyToClipboard(currentQRText, 'متن بارکد کپی شد!');
+		}
+
+		async function saveSettings(e) {
+			e.preventDefault();
+			const btn = document.getElementById('saveBtn');
+			const proxyIP = document.getElementById('proxyIPInput').value.trim();
+			const socks5Acc = document.getElementById('socks5Input').value.trim();
+
+			btn.disabled = true;
+			btn.innerHTML = '<span>در حال ذخیره...</span>';
+
+			// Update config
+			const updatedConfig = JSON.parse(JSON.stringify(CURRENT_CONFIG));
+			if (!updatedConfig.反代) updatedConfig.反代 = {};
+			
+			// PROXYIP
+			const pKey = Object.keys(updatedConfig.反代).find(k => k.toUpperCase().includes('IP')) || 'PROXYIP';
+			updatedConfig.反代[pKey] = proxyIP || 'auto';
+
+			// SOCKS5
+			if (!updatedConfig.反代.SOCKS5) updatedConfig.反代.SOCKS5 = {};
+			updatedConfig.反代.SOCKS5.账号 = socks5Acc;
+			updatedConfig.反代.SOCKS5.启用 = socks5Acc ? true : null;
+
+			try {
+				const res = await fetch('/admin/config.json', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(updatedConfig)
+				});
+				const data = await res.json().catch(() => null);
+
+				if (res.ok && data && (data.success || !data.error)) {
+					showToast('تنظیمات با موفقیت در دیتابیس KV ذخیره شد! 🎉');
+					Object.assign(CURRENT_CONFIG, updatedConfig);
+				} else {
+					showToast((data && data.error) ? data.error : 'خطا در ذخیره تنظیمات');
+				}
+			} catch (err) {
+				showToast('خطا در ارتباط با سرور هنگام ذخیره تنظیمات');
+			} finally {
+				btn.disabled = false;
+				btn.innerHTML = '<span>💾 ذخیره تنظیمات</span>';
+			}
+		}
+
+		// Initialize dashboard elements
+		document.addEventListener('DOMContentLoaded', () => {
+			document.getElementById('directNodePreview').textContent = getDirectNodeLink();
+			document.getElementById('subAutoPreview').textContent = getSubUrl('auto');
+			document.getElementById('subMCIPreview').textContent = getSubUrl('mci');
+			document.getElementById('subMTNPreview').textContent = getSubUrl('mtn');
+			document.getElementById('subB64Preview').textContent = getSubUrl('b64');
+
+			// Populate settings fields
+			document.getElementById('hostInput').value = CURRENT_CONFIG.HOST || window.location.hostname;
+			document.getElementById('uuidInput').value = CURRENT_CONFIG.UUID || '';
+
+			const pKey = CURRENT_CONFIG.反代 ? Object.keys(CURRENT_CONFIG.反代).find(k => k.toUpperCase().includes('IP')) : null;
+			const pVal = pKey ? CURRENT_CONFIG.反代[pKey] : '';
+			document.getElementById('proxyIPInput').value = (pVal && pVal !== 'auto') ? pVal : '';
+
+			const sVal = CURRENT_CONFIG.反代?.SOCKS5?.账号 || '';
+			document.getElementById('socks5Input').value = sVal;
+		});
+	</script>
+</body>
+</html>`;
+}
+
+function renderNoAdminHTML() {
+	return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>پیکربندی رمز مدیریت الزامی است | Smart Mango</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		${getSharedStyles()}
+		.center-wrapper {
+			flex: 1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 24px;
+		}
+		.notice-card {
+			max-width: 520px;
+			width: 100%;
+			padding: 36px 30px;
+			text-align: center;
+		}
+		.notice-icon {
+			font-size: 3rem;
+			margin-bottom: 14px;
+		}
+		.notice-title {
+			font-size: 1.4rem;
+			font-weight: 700;
+			margin-bottom: 12px;
+			color: #fbbf24;
+		}
+		.notice-desc {
+			color: var(--text-muted);
+			font-size: 0.92rem;
+			line-height: 1.7;
+			margin-bottom: 24px;
+			text-align: justify;
+		}
+		.steps-box {
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-md);
+			padding: 16px 20px;
+			text-align: right;
+			margin-bottom: 24px;
+		}
+		.step-item {
+			display: flex;
+			align-items: flex-start;
+			gap: 10px;
+			margin-bottom: 10px;
+			font-size: 0.88rem;
+		}
+		.step-item:last-child {
+			margin-bottom: 0;
+		}
+		.step-num {
+			background: var(--primary);
+			color: #000;
+			font-weight: 700;
+			width: 22px;
+			height: 22px;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 0.75rem;
+			flex-shrink: 0;
+		}
+	</style>
+</head>
+<body>
+	<div class="center-wrapper">
+		<div class="glass-panel notice-card">
+			<div class="notice-icon">⚠️</div>
+			<h1 class="notice-title">متغیر ADMIN تنظیم نشده است</h1>
+			<p class="notice-desc">برای حفاظت و دسترسی به پنل مدیریت، باید رمز عبور مدیریت را در تنظیمات پروژه کلادفلر تعریف کنید.</p>
+
+			<div class="steps-box">
+				<div class="step-item">
+					<div class="step-num">۱</div>
+					<div>در پنل کلادفلر وارد صفحه پروژه خود شوید.</div>
+				</div>
+				<div class="step-item">
+					<div class="step-num">۲</div>
+					<div>به تب <b>Settings</b> و سپس بخش <b>Variables and Secrets</b> بروید.</div>
+				</div>
+				<div class="step-item">
+					<div class="step-num">۳</div>
+					<div>متغیر جدیدی با نام <code>ADMIN</code> و مقدار یک پسورد دلخواه بسازید و ذخیره کنید.</div>
+				</div>
+			</div>
+
+			<a href="/" class="btn btn-secondary">تلاش مجدد و بارگذاری صفحه</a>
+		</div>
+	</div>
+</body>
+</html>`;
+}
+
+function renderNoKVHTML() {
+	return `<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>اتصال دیتابیس KV الزامی است | Smart Mango</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+	<style>
+		${getSharedStyles()}
+		.center-wrapper {
+			flex: 1;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 24px;
+		}
+		.notice-card {
+			max-width: 520px;
+			width: 100%;
+			padding: 36px 30px;
+			text-align: center;
+		}
+		.notice-icon {
+			font-size: 3rem;
+			margin-bottom: 14px;
+		}
+		.notice-title {
+			font-size: 1.4rem;
+			font-weight: 700;
+			margin-bottom: 12px;
+			color: #818cf8;
+		}
+		.notice-desc {
+			color: var(--text-muted);
+			font-size: 0.92rem;
+			line-height: 1.7;
+			margin-bottom: 24px;
+			text-align: justify;
+		}
+		.steps-box {
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border-glass);
+			border-radius: var(--radius-md);
+			padding: 16px 20px;
+			text-align: right;
+			margin-bottom: 24px;
+		}
+		.step-item {
+			display: flex;
+			align-items: flex-start;
+			gap: 10px;
+			margin-bottom: 10px;
+			font-size: 0.88rem;
+		}
+		.step-item:last-child {
+			margin-bottom: 0;
+		}
+		.step-num {
+			background: var(--accent-indigo);
+			color: #fff;
+			font-weight: 700;
+			width: 22px;
+			height: 22px;
+			border-radius: 50%;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 0.75rem;
+			flex-shrink: 0;
+		}
+	</style>
+</head>
+<body>
+	<div class="center-wrapper">
+		<div class="glass-panel notice-card">
+			<div class="notice-icon">💾</div>
+			<h1 class="notice-title">دیتابیس KV متصل نشده است</h1>
+			<p class="notice-desc">برای ذخیره‌سازی پیکربندی‌ها، توکن‌های اشتراک و لاگ‌های سیستم، اتصال دیتابیس KV به پروژه الزامی است.</p>
+
+			<div class="steps-box">
+				<div class="step-item">
+					<div class="step-num">۱</div>
+					<div>در منوی Cloudflare به بخش <b>Workers & Pages > KV</b> رفته و یک Namespace بسازید.</div>
+				</div>
+				<div class="step-item">
+					<div class="step-num">۲</div>
+					<div>وارد پروژه Pages خود شده و به تب <b>Settings > Functions</b> بروید.</div>
+				</div>
+				<div class="step-item">
+					<div class="step-num">۳</div>
+					<div>در بخش <b>KV namespace bindings</b>، یک اتصال با نام دقیق <code>KV</code> به دیتابیس ساخته شده ایجاد کنید.</div>
+				</div>
+			</div>
+
+			<a href="/" class="btn btn-secondary">تلاش مجدد و بررسی اتصال</a>
+		</div>
+	</div>
 </body>
 </html>`;
 }
