@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Create deploy.zip
         run: |
@@ -28,12 +30,28 @@ jobs:
             zip -r deploy.zip public/
           fi
 
-      - name: Generate Version Tag
+      - name: Determine Next Sequential Version
         id: version
         run: |
-          VERSION="v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
-          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Generated version: ${VERSION}"
+          # Fetch all remote tags to ensure full list
+          git fetch --tags --force
+
+          # Find highest integer N from tags matching pattern ^v[0-9]+$
+          MAX_NUM=0
+          for tag in $(git tag -l 'v*'); do
+            if [[ "$tag" =~ ^v([0-9]+)$ ]]; then
+              NUM="${BASH_REMATCH[1]}"
+              if (( NUM > MAX_NUM )); then
+                MAX_NUM=$NUM
+              fi
+            fi
+          done
+
+          NEXT_NUM=$((MAX_NUM + 1))
+          TAG_NAME="v${NEXT_NUM}"
+
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Next release version: ${TAG_NAME}"
 
       - name: Create Versioned Release
         uses: softprops/action-gh-release@v2
@@ -48,18 +66,4 @@ jobs:
             - بدون نیاز به کامپیوتر یا سیستم، می‌توانید این فایل را با موبایل دانلود کرده و در پنل کلادفلر مستقیماً آپلود کنید.
             - برای راهنمای گام‌به‌گام استقرار، به [README.md](README.md) مراجعه کنید.
           files: deploy.zip
-
-      - name: Update Latest Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: "Latest Ready-to-Deploy Assets"
-          body: |
-            ### 📦 بسته آماده دیپلوی در کلادفلر پیجز (Pages Deploy Package)
-
-            - آخرین نسخه ساخته شده: `${{ steps.version.outputs.tag }}`
-            - بدون نیاز به کامپیوتر یا سیستم، می‌توانید این فایل را با موبایل دانلود کرده و در پنل کلادفلر مستقیماً آپلود کنید.
-            - برای راهنمای گام‌به‌گام استقرار، به [README.md](README.md) مراجعه کنید.
-          files: deploy.zip
           make_latest: true
-
